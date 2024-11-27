@@ -1,0 +1,33 @@
+version: 3
+
+tasks:
+  clean:
+    desc: Clean
+    cmds:
+      - rm -rf dist
+
+  preBuild:
+    desc: Pre-build
+    cmds:
+      - go mod download
+      - go mod tidy
+
+  build:
+    desc: Build
+    deps: [ preBuild ]
+    cmds:
+      - mkdir -p dist/bin
+      - go build -o dist/bin/mdbook-asciidoc .
+      #- goreleaser --snapshot --clean
+
+  test:
+    desc: Test
+    deps: [ build ]
+    cmds:
+      - PATH=$PWD/dist/bin:$PATH mdbook build examples/test
+
+  dependencyUpdates:
+    desc: Show dependency updates
+    deps: [ preBuild ]
+    cmds:
+      - go list -u -m -json all | go run github.com/psampaz/go-mod-outdated@v0.9.0 -update -direct
