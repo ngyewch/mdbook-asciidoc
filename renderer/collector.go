@@ -1,6 +1,7 @@
 package renderer
 
 import (
+	"bytes"
 	"github.com/ngyewch/mdbook-asciidoc/mdbook"
 	"github.com/yuin/goldmark/ast"
 	extensionAst "github.com/yuin/goldmark/extension/ast"
@@ -22,7 +23,7 @@ type footnoteKey struct {
 
 type footnoteEntry struct {
 	Index    int
-	Footnote *extensionAst.Footnote
+	Footnote string
 }
 
 func getChapterId(chapter *mdbook.Chapter) string {
@@ -38,11 +39,25 @@ func getChapterId(chapter *mdbook.Chapter) string {
 
 func (c *collector) HandleChapter(chapter *mdbook.Chapter, contentHandler func(walker ast.Walker) error) error {
 	chapterId := getChapterId(chapter)
-
 	err := contentHandler(func(node ast.Node, entering bool) (ast.WalkStatus, error) {
 		switch v := node.(type) {
 		case *extensionAst.Footnote:
 			if entering {
+				buf := bytes.NewBuffer(nil)
+				mr := &markdownRenderer{
+					renderContext: c.renderContext,
+					config:        c.config,
+					chapter:       chapter,
+					sourceBytes:   []byte(chapter.Content),
+					w:             buf,
+				}
+				for child := node.FirstChild(); child != nil; child = child.NextSibling() {
+					err := ast.Walk(child, mr.Walk)
+					if err != nil {
+						return ast.WalkStop, err
+					}
+				}
+
 				c.footnoteIndex++
 				key := footnoteKey{
 					ChapterId: chapterId,
@@ -50,9 +65,11 @@ func (c *collector) HandleChapter(chapter *mdbook.Chapter, contentHandler func(w
 				}
 				value := footnoteEntry{
 					Index:    c.footnoteIndex,
-					Footnote: v,
+					Footnote: buf.String(),
 				}
 				c.footnoteMap[key] = value
+
+				return ast.WalkSkipChildren, nil
 			}
 		}
 

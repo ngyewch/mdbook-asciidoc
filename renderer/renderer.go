@@ -132,7 +132,7 @@ func Render(renderContext *mdbook.RenderContext, config Config) error {
 	}
 
 	for _, entry := range r.footnoteMap {
-		_, err = fmt.Fprintf(r.w, ":fn-%d: footnote:%d[boohoo-%d]\n", entry.Index, entry.Index, entry.Index)
+		_, err = fmt.Fprintf(r.w, ":fn-%d: footnote:%d[%s]\n", entry.Index, entry.Index, entry.Footnote)
 		if err != nil {
 			return err
 		}

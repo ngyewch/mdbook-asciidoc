@@ -13,12 +13,12 @@ import (
 )
 
 type markdownRenderer struct {
-	renderContext *mdbook.RenderContext
+	renderContext *mdbook.RenderContext // TODO remove
 	config        Config
-	chapter       *mdbook.Chapter
+	chapter       *mdbook.Chapter // TODO remove
 	sourceBytes   []byte
 	w             io.Writer
-	footnoteMap   map[footnoteKey]footnoteEntry
+	footnoteMap   map[footnoteKey]footnoteEntry // TODO refactor
 }
 
 func (mr *markdownRenderer) Walk(node ast.Node, entering bool) (ast.WalkStatus, error) {
