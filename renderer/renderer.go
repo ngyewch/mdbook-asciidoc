@@ -6,18 +6,17 @@ import (
 	"github.com/ngyewch/mdbook-asciidoc/mdbook"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
-	"github.com/yuin/goldmark/extension"
 	extensionAst "github.com/yuin/goldmark/extension/ast"
-	"github.com/yuin/goldmark/text"
 	"io"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 )
 
-type session struct {
+type renderer struct {
 	renderContext *mdbook.RenderContext
 	config        Config
 	md            goldmark.Markdown
@@ -29,11 +28,6 @@ type Config struct {
 }
 
 func Render(renderContext *mdbook.RenderContext, config Config) error {
-	md := goldmark.New(
-		goldmark.WithExtensions(extension.GFM, extension.Footnote),
-		goldmark.WithParserOptions(),
-	)
-
 	outputDir := renderContext.Destination
 	err := os.MkdirAll(outputDir, 0755)
 	if err != nil {
@@ -62,10 +56,9 @@ func Render(renderContext *mdbook.RenderContext, config Config) error {
 	if err != nil {
 		return err
 	}
-	s := &session{
+	r := &renderer{
 		renderContext: renderContext,
 		config:        config,
-		md:            md,
 		w:             f,
 	}
 
@@ -120,12 +113,17 @@ func Render(renderContext *mdbook.RenderContext, config Config) error {
 		return err
 	}
 
+	_, err = fmt.Fprintln(f, ":text-align: left")
+	if err != nil {
+		return err
+	}
+
 	_, err = fmt.Fprintln(f)
 	if err != nil {
 		return err
 	}
 
-	err = s.render()
+	err = mdbook.Process(renderContext, r)
 	if err != nil {
 		return err
 	}
@@ -133,53 +131,13 @@ func Render(renderContext *mdbook.RenderContext, config Config) error {
 	return nil
 }
 
-func (s *session) render() error {
-	for _, section := range s.renderContext.Book.Sections {
-		err := s.handleBookItem(section)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (s *session) handleBookItem(bookItem *mdbook.BookItem) error {
-	if bookItem.Chapter != nil {
-		return s.handleChapter(bookItem.Chapter)
-	} else if bookItem.Separator != nil {
-		return s.handleSeparator(bookItem.Separator)
-	} else if bookItem.PartTitle != nil {
-		return s.handlePartTitle(bookItem.PartTitle)
-	} else {
-		return fmt.Errorf("invalid book item")
-	}
-}
-
-func printNode(node ast.Node, nodeLevel int, attrs map[string]any) {
-	doPrintNode(node, nodeLevel, true, attrs)
-}
-
-func doPrintNode(node ast.Node, nodeLevel int, handled bool, attrs map[string]any) {
-	fmt.Print(strings.Repeat(" ", nodeLevel))
-	fmt.Print("- ")
-	if handled {
-		fmt.Printf("[%v]", node.Kind())
-	} else {
-		fmt.Printf("[! %v]", node.Kind())
-	}
-	if attrs != nil {
-		fmt.Printf(" %v", attrs)
-	}
-	fmt.Println()
-}
-
-func (s *session) handleChapter(chapter *mdbook.Chapter) error {
-	_, err := fmt.Fprintln(s.w)
+func (r *renderer) HandleChapter(chapter *mdbook.Chapter, contentHandler func(walker ast.Walker) error) error {
+	_, err := fmt.Fprintln(r.w)
 	if err != nil {
 		return err
 	}
 
-	_, err = fmt.Fprintln(s.w, "<<<")
+	_, err = fmt.Fprintln(r.w, "<<<")
 	if err != nil {
 		return err
 	}
@@ -198,19 +156,18 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 		chapterLevel = len(chapter.Number) + 1
 	}
 
-	_, err = fmt.Fprintln(s.w)
+	_, err = fmt.Fprintln(r.w)
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(s.w, "%s %s\n", strings.Repeat("=", chapterLevel), chapterName)
+	_, err = fmt.Fprintf(r.w, "%s %s\n", strings.Repeat("=", chapterLevel), chapterName)
 	if err != nil {
 		return err
 	}
 
 	sourceBytes := []byte(chapter.Content)
-	doc := s.md.Parser().Parse(text.NewReader(sourceBytes))
 	nodeLevel := 0
-	err = ast.Walk(doc, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
+	err = contentHandler(func(node ast.Node, entering bool) (ast.WalkStatus, error) {
 		if entering {
 			nodeLevel++
 		} else {
@@ -224,7 +181,7 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 					"AutoLinkType": v.AutoLinkType,
 					"URL":          url,
 				})
-				_, err = fmt.Fprintf(s.w, "<%s>", url)
+				_, err = fmt.Fprintf(r.w, "<%s>", url)
 				if err != nil {
 					return ast.WalkStop, err
 				}
@@ -233,16 +190,16 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 		case *ast.Blockquote:
 			if entering {
 				printNode(node, nodeLevel, nil)
-				_, err = fmt.Fprintln(s.w)
+				_, err = fmt.Fprintln(r.w)
 				if err != nil {
 					return ast.WalkStop, err
 				}
-				_, err = fmt.Fprintln(s.w, "____")
+				_, err = fmt.Fprintln(r.w, "____")
 				if err != nil {
 					return ast.WalkStop, err
 				}
 			} else {
-				_, err = fmt.Fprintln(s.w, "____")
+				_, err = fmt.Fprintln(r.w, "____")
 				if err != nil {
 					return ast.WalkStop, err
 				}
@@ -251,12 +208,12 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 		case *ast.CodeSpan:
 			if entering {
 				printNode(node, nodeLevel, nil)
-				_, err = fmt.Fprint(s.w, "`")
+				_, err = fmt.Fprint(r.w, "`")
 				if err != nil {
 					return ast.WalkStop, err
 				}
 			} else {
-				_, err = fmt.Fprint(s.w, "`")
+				_, err = fmt.Fprint(r.w, "`")
 				if err != nil {
 					return ast.WalkStop, err
 				}
@@ -274,12 +231,12 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 				})
 				switch v.Level {
 				case 1:
-					_, err = fmt.Fprint(s.w, "_")
+					_, err = fmt.Fprint(r.w, "_")
 					if err != nil {
 						return ast.WalkStop, err
 					}
 				case 2:
-					_, err = fmt.Fprint(s.w, "*")
+					_, err = fmt.Fprint(r.w, "*")
 					if err != nil {
 						return ast.WalkStop, err
 					}
@@ -289,12 +246,12 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 			} else {
 				switch v.Level {
 				case 1:
-					_, err = fmt.Fprint(s.w, "_")
+					_, err = fmt.Fprint(r.w, "_")
 					if err != nil {
 						return ast.WalkStop, err
 					}
 				case 2:
-					_, err = fmt.Fprint(s.w, "*")
+					_, err = fmt.Fprint(r.w, "*")
 					if err != nil {
 						return ast.WalkStop, err
 					}
@@ -309,22 +266,22 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 				printNode(node, nodeLevel, map[string]any{
 					"Language": language,
 				})
-				_, err = fmt.Fprintln(s.w)
+				_, err = fmt.Fprintln(r.w)
 				if err != nil {
 					return ast.WalkStop, err
 				}
 				if language != "" {
-					_, err = fmt.Fprintf(s.w, "[source,%s]\n", language)
+					_, err = fmt.Fprintf(r.w, "[source,%s]\n", language)
 					if err != nil {
 						return ast.WalkStop, err
 					}
 				} else {
-					_, err = fmt.Fprintln(s.w, "[source]")
+					_, err = fmt.Fprintln(r.w, "[source]")
 					if err != nil {
 						return ast.WalkStop, err
 					}
 				}
-				_, err = fmt.Fprintln(s.w, "----")
+				_, err = fmt.Fprintln(r.w, "----")
 				if err != nil {
 					return ast.WalkStop, err
 				}
@@ -333,12 +290,12 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 				for i := 0; i < lines.Len(); i++ {
 					line := lines.At(i)
 					l := string(line.Value(sourceBytes))
-					_, err = fmt.Fprint(s.w, l)
+					_, err = fmt.Fprint(r.w, l)
 					if err != nil {
 						return ast.WalkStop, err
 					}
 				}
-				_, err = fmt.Fprintln(s.w, "----")
+				_, err = fmt.Fprintln(r.w, "----")
 				if err != nil {
 					return ast.WalkStop, err
 				}
@@ -346,7 +303,7 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 
 		case *ast.HTMLBlock:
 			if entering {
-				_, err = fmt.Fprint(s.w, "pass:[")
+				_, err = fmt.Fprint(r.w, "pass:[")
 				if err != nil {
 					return ast.WalkStop, err
 				}
@@ -354,20 +311,20 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 				for i := 0; i < lines.Len(); i++ {
 					line := lines.At(i)
 					l := string(line.Value(sourceBytes))
-					_, err = fmt.Fprint(s.w, l)
+					_, err = fmt.Fprint(r.w, l)
 					if err != nil {
 						return ast.WalkStop, err
 					}
 				}
 			} else {
-				_, err = fmt.Fprint(s.w, "]")
+				_, err = fmt.Fprint(r.w, "]")
 				if err != nil {
 					return ast.WalkStop, err
 				}
 			}
 
 		case *ast.Heading:
-			if (s.config.MinHeadingLevel > 0) && v.Level < s.config.MinHeadingLevel {
+			if (r.config.MinHeadingLevel > 0) && v.Level < r.config.MinHeadingLevel {
 				return ast.WalkSkipChildren, nil
 			}
 			if entering {
@@ -375,11 +332,11 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 					"Level": v.Level,
 				})
 
-				_, err = fmt.Fprintln(s.w)
+				_, err = fmt.Fprintln(r.w)
 				if err != nil {
 					return ast.WalkStop, err
 				}
-				_, err = fmt.Fprintln(s.w, "[discrete]")
+				_, err = fmt.Fprintln(r.w, "[discrete]")
 				if err != nil {
 					return ast.WalkStop, err
 				}
@@ -391,12 +348,12 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 					asciidocHeadingLevel = 6
 					log.Printf("unsupported heading level %d, changed to %d", v.Level+1, asciidocHeadingLevel)
 				}
-				_, err = fmt.Fprintf(s.w, "%s ", strings.Repeat("=", asciidocHeadingLevel))
+				_, err = fmt.Fprintf(r.w, "%s ", strings.Repeat("=", asciidocHeadingLevel))
 				if err != nil {
 					return ast.WalkStop, err
 				}
 			} else {
-				_, err = fmt.Fprintln(s.w)
+				_, err = fmt.Fprintln(r.w)
 				if err != nil {
 					return ast.WalkStop, err
 				}
@@ -410,18 +367,38 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 					"Destination": destination,
 					"Title":       title,
 				})
-				_, err = fmt.Fprintf(s.w, "image:%s[", destination)
+				u, err := url.Parse(destination)
+				if err != nil {
+					return ast.WalkStop, err
+				}
+				if (u.Scheme == "") || (u.Scheme == "file") {
+					src := r.renderContext.Config.Book.Src
+					if src == "" {
+						src = "src"
+					}
+					baseDirectory := filepath.Join(r.renderContext.Root, src)
+					sourcePath := filepath.Join(baseDirectory, filepath.Dir(chapter.SourcePath), u.Path)
+					relPath := filepath.Join(filepath.Dir(chapter.SourcePath), u.Path)
+					destinationPath := filepath.Join(r.renderContext.Destination, relPath)
+					fmt.Println(sourcePath, destinationPath)
+					err = doCopyFile(sourcePath, destinationPath)
+					if err != nil {
+						return ast.WalkStop, err
+					}
+					destination = relPath
+				}
+				_, err = fmt.Fprintf(r.w, "image:%s[", destination)
 				if err != nil {
 					return ast.WalkStop, err
 				}
 				if title != "" {
-					_, err = fmt.Fprintf(s.w, "title=%s,", title)
+					_, err = fmt.Fprintf(r.w, "title=%s,", title)
 					if err != nil {
 						return ast.WalkStop, err
 					}
 				}
 			} else {
-				_, err = fmt.Fprint(s.w, "]")
+				_, err = fmt.Fprint(r.w, "]")
 				if err != nil {
 					return ast.WalkStop, err
 				}
@@ -435,12 +412,12 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 					"Title":       title,
 					"Destination": destination,
 				})
-				_, err = fmt.Fprintf(s.w, "link:%s[", destination)
+				_, err = fmt.Fprintf(r.w, "link:%s[", destination)
 				if err != nil {
 					return ast.WalkStop, err
 				}
 			} else {
-				_, err = fmt.Fprint(s.w, "]")
+				_, err = fmt.Fprint(r.w, "]")
 				if err != nil {
 					return ast.WalkStop, err
 				}
@@ -453,17 +430,17 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 					"Marker":  string(v.Marker),
 					"IsTight": v.IsTight,
 				})
-				_, err = fmt.Fprintln(s.w)
+				_, err = fmt.Fprintln(r.w)
 				if err != nil {
 					return ast.WalkStop, err
 				}
 				if v.IsOrdered() && (v.Start != 1) {
-					_, err = fmt.Fprintf(s.w, "[start=%d]\n", v.Start)
+					_, err = fmt.Fprintf(r.w, "[start=%d]\n", v.Start)
 					if err != nil {
 						return ast.WalkStop, err
 					}
 				} else {
-					_, err = fmt.Fprint(s.w, "[disc]\n")
+					_, err = fmt.Fprint(r.w, "[disc]\n")
 					if err != nil {
 						return ast.WalkStop, err
 					}
@@ -489,12 +466,12 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 				if parent.IsOrdered() {
 					marker = "."
 				}
-				_, err = fmt.Fprintf(s.w, "%s ", strings.Repeat(marker, level))
+				_, err = fmt.Fprintf(r.w, "%s ", strings.Repeat(marker, level))
 				if err != nil {
 					return ast.WalkStop, err
 				}
 			} else {
-				_, err = fmt.Fprintln(s.w)
+				_, err = fmt.Fprintln(r.w)
 				if err != nil {
 					return ast.WalkStop, err
 				}
@@ -507,7 +484,7 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 				case *ast.ListItem, *extensionAst.Footnote:
 					// do nothing
 				default:
-					_, err = fmt.Fprintln(s.w)
+					_, err = fmt.Fprintln(r.w)
 					if err != nil {
 						return ast.WalkStop, err
 					}
@@ -517,7 +494,7 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 				case *extensionAst.Footnote:
 					// do nothing
 				default:
-					_, err = fmt.Fprintln(s.w)
+					_, err = fmt.Fprintln(r.w)
 					if err != nil {
 						return ast.WalkStop, err
 					}
@@ -530,7 +507,7 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 				printNode(node, nodeLevel, map[string]any{
 					"Value": value,
 				})
-				_, err = fmt.Fprint(s.w, value)
+				_, err = fmt.Fprint(r.w, value)
 				if err != nil {
 					return ast.WalkStop, err
 				}
@@ -544,11 +521,11 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 		case *ast.ThematicBreak:
 			if entering {
 				printNode(node, nodeLevel, nil)
-				_, err = fmt.Fprintln(s.w)
+				_, err = fmt.Fprintln(r.w)
 				if err != nil {
 					return ast.WalkStop, err
 				}
-				_, err = fmt.Fprintln(s.w, "'''")
+				_, err = fmt.Fprintln(r.w, "'''")
 				if err != nil {
 					return ast.WalkStop, err
 				}
@@ -561,16 +538,16 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 					"Ref":   ref,
 					"Index": v.Index,
 				})
-				_, err = fmt.Fprintln(s.w)
+				_, err = fmt.Fprintln(r.w)
 				if err != nil {
 					return ast.WalkStop, err
 				}
-				_, err = fmt.Fprintf(s.w, ":fn-%d: footnote:%d[", v.Index, v.Index)
+				_, err = fmt.Fprintf(r.w, ":fn-%d: footnote:%d[", v.Index, v.Index)
 				if err != nil {
 					return ast.WalkStop, err
 				}
 			} else {
-				_, err = fmt.Fprintln(s.w, "]")
+				_, err = fmt.Fprintln(r.w, "]")
 				if err != nil {
 					return ast.WalkStop, err
 				}
@@ -594,7 +571,7 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 					"RefCount": v.RefCount,
 					"RefIndex": v.RefIndex,
 				})
-				_, err = fmt.Fprintf(s.w, "{fn-%d}", v.Index)
+				_, err = fmt.Fprintf(r.w, "{fn-%d}", v.Index)
 				if err != nil {
 					return ast.WalkStop, err
 				}
@@ -610,12 +587,12 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 		case *extensionAst.Strikethrough:
 			if entering {
 				printNode(node, nodeLevel, nil)
-				_, err = fmt.Fprint(s.w, "[.line-through]#")
+				_, err = fmt.Fprint(r.w, "[.line-through]#")
 				if err != nil {
 					return ast.WalkStop, err
 				}
 			} else {
-				_, err = fmt.Fprint(s.w, "#")
+				_, err = fmt.Fprint(r.w, "#")
 				if err != nil {
 					return ast.WalkStop, err
 				}
@@ -626,7 +603,7 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 				printNode(node, nodeLevel, map[string]any{
 					"Alignments": v.Alignments,
 				})
-				_, err = fmt.Fprintln(s.w)
+				_, err = fmt.Fprintln(r.w)
 				if err != nil {
 					return ast.WalkStop, err
 				}
@@ -657,16 +634,16 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 				if len(options) > 0 {
 					tableSpecs = append(tableSpecs, fmt.Sprintf("options=\"%s\"", strings.Join(options, ",")))
 				}
-				_, err = fmt.Fprintf(s.w, "[%s]\n", strings.Join(tableSpecs, ","))
+				_, err = fmt.Fprintf(r.w, "[%s]\n", strings.Join(tableSpecs, ","))
 				if err != nil {
 					return ast.WalkStop, err
 				}
-				_, err = fmt.Fprintln(s.w, "|===")
+				_, err = fmt.Fprintln(r.w, "|===")
 				if err != nil {
 					return ast.WalkStop, err
 				}
 			} else {
-				_, err = fmt.Fprintln(s.w, "|===")
+				_, err = fmt.Fprintln(r.w, "|===")
 				if err != nil {
 					return ast.WalkStop, err
 				}
@@ -675,12 +652,12 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 		case *extensionAst.TableCell:
 			if entering {
 				printNode(node, nodeLevel, nil)
-				_, err = fmt.Fprint(s.w, "|")
+				_, err = fmt.Fprint(r.w, "|")
 				if err != nil {
 					return ast.WalkStop, err
 				}
 			} else {
-				_, err = fmt.Fprint(s.w, " ")
+				_, err = fmt.Fprint(r.w, " ")
 				if err != nil {
 					return ast.WalkStop, err
 				}
@@ -690,7 +667,7 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 			if entering {
 				printNode(node, nodeLevel, nil)
 			} else {
-				_, err = fmt.Fprintln(s.w)
+				_, err = fmt.Fprintln(r.w)
 				if err != nil {
 					return ast.WalkStop, err
 				}
@@ -700,7 +677,7 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 			if entering {
 				printNode(node, nodeLevel, nil)
 			} else {
-				_, err = fmt.Fprintln(s.w)
+				_, err = fmt.Fprintln(r.w)
 				if err != nil {
 					return ast.WalkStop, err
 				}
@@ -718,14 +695,7 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 		return err
 	}
 
-	for _, subItem := range chapter.SubItems {
-		err := s.handleBookItem(subItem)
-		if err != nil {
-			return err
-		}
-	}
-
-	_, err = fmt.Fprintln(s.w)
+	_, err = fmt.Fprintln(r.w)
 	if err != nil {
 		return err
 	}
@@ -733,12 +703,60 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 	return nil
 }
 
-func (s *session) handleSeparator(separator *mdbook.Separator) error {
-	// TODO
+func (r *renderer) HandleSeparator(separator *mdbook.Separator) error {
+	// do nothing
 	return nil
 }
 
-func (s *session) handlePartTitle(title *mdbook.PartTitle) error {
-	// TODO
+func (r *renderer) HandlePartTitle(title *mdbook.PartTitle) error {
+	// do nothing
+	return nil
+}
+
+func printNode(node ast.Node, nodeLevel int, attrs map[string]any) {
+	doPrintNode(node, nodeLevel, true, attrs)
+}
+
+func doPrintNode(node ast.Node, nodeLevel int, handled bool, attrs map[string]any) {
+	fmt.Print(strings.Repeat(" ", nodeLevel))
+	fmt.Print("- ")
+	if handled {
+		fmt.Printf("[%v]", node.Kind())
+	} else {
+		fmt.Printf("[! %v]", node.Kind())
+	}
+	if attrs != nil {
+		fmt.Printf(" %v", attrs)
+	}
+	fmt.Println()
+}
+
+func doCopyFile(src string, dst string) error {
+	r, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer func(r *os.File) {
+		_ = r.Close()
+	}(r)
+
+	err = os.MkdirAll(filepath.Dir(dst), 0755)
+	if err != nil {
+		return err
+	}
+
+	w, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer func(w *os.File) {
+		_ = w.Close()
+	}(w)
+
+	_, err = io.Copy(w, r)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }

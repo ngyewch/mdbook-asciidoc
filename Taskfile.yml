@@ -24,8 +24,11 @@ tasks:
     desc: Test
     deps: [ build ]
     cmds:
-      - PATH=$PWD/dist/bin:$PATH mdbook build examples/test
-      - docker run --rm -u $(id -u):$(id -g) -v $(pwd)/examples/test/book/asciidoc/:/documents/ asciidoctor/docker-asciidoctor asciidoctor-pdf -a allow-uri-read output.adoc
+      - PATH=$PWD/dist/bin:$PATH mdbook build ${BOOK_DIR}
+      - docker run --rm -u $(id -u):$(id -g) -v ${BOOK_DIR}/book/asciidoc/:/documents/ asciidoctor/docker-asciidoctor asciidoctor-pdf -a allow-uri-read output.adoc
+    env:
+      BOOK_DIR:
+        sh: echo "$PWD/examples/test"
 
   dependencyUpdates:
     desc: Show dependency updates
