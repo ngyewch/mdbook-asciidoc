@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"github.com/ngyewch/mdbook-asciidoc/mdbook"
 	"github.com/ngyewch/mdbook-asciidoc/renderer"
 	"github.com/urfave/cli/v2"
@@ -29,7 +30,18 @@ func doMain(cCtx *cli.Context) error {
 		return err
 	}
 
-	err = renderer.Render(renderContext, renderer.Config{})
+	jsonBytes, err := json.Marshal(renderContext.Config.Output["asciidoc"])
+	if err != nil {
+		return err
+	}
+
+	var config renderer.Config
+	err = json.Unmarshal(jsonBytes, &config)
+	if err != nil {
+		return err
+	}
+
+	err = renderer.Render(renderContext, config)
 	if err != nil {
 		return err
 	}
