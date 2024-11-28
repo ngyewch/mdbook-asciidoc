@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/ngyewch/mdbook-asciidoc/mdbook"
-	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	extensionAst "github.com/yuin/goldmark/extension/ast"
 	"io"
@@ -19,8 +18,8 @@ import (
 type renderer struct {
 	renderContext *mdbook.RenderContext
 	config        Config
-	md            goldmark.Markdown
 	w             io.Writer
+	footnoteMap   map[footnoteKey]footnoteEntry
 }
 
 type Config struct {
@@ -52,14 +51,26 @@ func Render(renderContext *mdbook.RenderContext, config Config) error {
 		}
 	}
 
+	c := &collector{
+		renderContext: renderContext,
+		config:        config,
+		footnoteMap:   make(map[footnoteKey]footnoteEntry),
+	}
+	err = mdbook.Process(renderContext, c)
+	if err != nil {
+		return err
+	}
+
 	f, err := os.Create(filepath.Join(outputDir, "output.adoc"))
 	if err != nil {
 		return err
 	}
+
 	r := &renderer{
 		renderContext: renderContext,
 		config:        config,
 		w:             f,
+		footnoteMap:   c.footnoteMap,
 	}
 
 	_, err = fmt.Fprintln(f, ":doctype: book")
@@ -123,6 +134,13 @@ func Render(renderContext *mdbook.RenderContext, config Config) error {
 		return err
 	}
 
+	for _, entry := range r.footnoteMap {
+		_, err = fmt.Fprintf(r.w, ":fn-%d: footnote:%d[boohoo-%d]\n", entry.Index, entry.Index, entry.Index)
+		if err != nil {
+			return err
+		}
+	}
+
 	err = mdbook.Process(renderContext, r)
 	if err != nil {
 		return err
@@ -132,16 +150,6 @@ func Render(renderContext *mdbook.RenderContext, config Config) error {
 }
 
 func (r *renderer) HandleChapter(chapter *mdbook.Chapter, contentHandler func(walker ast.Walker) error) error {
-	_, err := fmt.Fprintln(r.w)
-	if err != nil {
-		return err
-	}
-
-	_, err = fmt.Fprintln(r.w, "<<<")
-	if err != nil {
-		return err
-	}
-
 	var chapterName string
 	var chapterLevel int
 	if len(chapter.Number) == 0 {
@@ -156,7 +164,7 @@ func (r *renderer) HandleChapter(chapter *mdbook.Chapter, contentHandler func(wa
 		chapterLevel = len(chapter.Number) + 1
 	}
 
-	_, err = fmt.Fprintln(r.w)
+	_, err := fmt.Fprintln(r.w)
 	if err != nil {
 		return err
 	}
@@ -531,26 +539,14 @@ func (r *renderer) HandleChapter(chapter *mdbook.Chapter, contentHandler func(wa
 				}
 			}
 
-		case *extensionAst.Footnote: // TODO collect footnotes
+		case *extensionAst.Footnote:
 			if entering {
 				ref := string(v.Ref)
 				printNode(node, nodeLevel, map[string]any{
 					"Ref":   ref,
 					"Index": v.Index,
 				})
-				_, err = fmt.Fprintln(r.w)
-				if err != nil {
-					return ast.WalkStop, err
-				}
-				_, err = fmt.Fprintf(r.w, ":fn-%d: footnote:%d[", v.Index, v.Index)
-				if err != nil {
-					return ast.WalkStop, err
-				}
-			} else {
-				_, err = fmt.Fprintln(r.w, "]")
-				if err != nil {
-					return ast.WalkStop, err
-				}
+				return ast.WalkSkipChildren, nil
 			}
 
 		case *extensionAst.FootnoteBacklink:
@@ -564,16 +560,23 @@ func (r *renderer) HandleChapter(chapter *mdbook.Chapter, contentHandler func(wa
 				return ast.WalkSkipChildren, nil
 			}
 
-		case *extensionAst.FootnoteLink: // TODO collect footnotes
+		case *extensionAst.FootnoteLink:
 			if entering {
 				printNode(node, nodeLevel, map[string]any{
 					"Index":    v.Index,
 					"RefCount": v.RefCount,
 					"RefIndex": v.RefIndex,
 				})
-				_, err = fmt.Fprintf(r.w, "{fn-%d}", v.Index)
-				if err != nil {
-					return ast.WalkStop, err
+				key := footnoteKey{
+					ChapterId: getChapterId(chapter),
+					Index:     v.Index,
+				}
+				value, ok := r.footnoteMap[key]
+				if ok {
+					_, err = fmt.Fprintf(r.w, "{fn-%d}", value.Index)
+					if err != nil {
+						return ast.WalkStop, err
+					}
 				}
 			}
 
