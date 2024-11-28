@@ -1,11 +1,9 @@
 package main
 
 import (
-	"encoding/json"
 	"github.com/ngyewch/mdbook-asciidoc/mdbook"
 	"github.com/ngyewch/mdbook-asciidoc/renderer"
 	"github.com/urfave/cli/v2"
-	"io"
 	"log"
 	"os"
 )
@@ -26,18 +24,12 @@ func main() {
 }
 
 func doMain(cCtx *cli.Context) error {
-	b, err := io.ReadAll(os.Stdin)
+	renderContext, err := mdbook.ParseRenderContextFromReader(os.Stdin)
 	if err != nil {
 		return err
 	}
 
-	var renderContext mdbook.RenderContext
-	err = json.Unmarshal(b, &renderContext)
-	if err != nil {
-		return err
-	}
-
-	err = renderer.Render(&renderContext, renderer.Config{})
+	err = renderer.Render(renderContext, renderer.Config{})
 	if err != nil {
 		return err
 	}

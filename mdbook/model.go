@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 )
 
 type RenderContext struct {
@@ -133,4 +134,14 @@ func (item *BookItem) MarshalJSON() ([]byte, error) {
 		}
 	}
 	return json.Marshal(output)
+}
+
+func ParseRenderContextFromReader(r io.Reader) (*RenderContext, error) {
+	jsonDecoder := json.NewDecoder(r)
+	var renderContext RenderContext
+	err := jsonDecoder.Decode(&renderContext)
+	if err != nil {
+		return nil, err
+	}
+	return &renderContext, nil
 }
