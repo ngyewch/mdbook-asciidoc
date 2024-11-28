@@ -34,7 +34,7 @@ func Render(renderContext *mdbook.RenderContext, config Config) error {
 		goldmark.WithParserOptions(),
 	)
 
-	outputDir := filepath.Join(renderContext.Destination, "asciidoc")
+	outputDir := renderContext.Destination
 	err := os.MkdirAll(outputDir, 0755)
 	if err != nil {
 		return err
