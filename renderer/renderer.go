@@ -10,25 +10,27 @@ import (
 	extensionAst "github.com/yuin/goldmark/extension/ast"
 	"github.com/yuin/goldmark/text"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 )
 
-var (
-	headingPointSizes = []float64{27, 22.5, 18, 13.5, 10.5, 9}
-)
-
 type session struct {
 	renderContext *mdbook.RenderContext
+	config        Config
 	md            goldmark.Markdown
 	w             io.Writer
 }
 
-func Render(renderContext *mdbook.RenderContext) error {
+type Config struct {
+	MinHeadingLevel int
+}
+
+func Render(renderContext *mdbook.RenderContext, config Config) error {
 	md := goldmark.New(
-		goldmark.WithExtensions(extension.GFM),
+		goldmark.WithExtensions(extension.GFM, extension.Footnote),
 		goldmark.WithParserOptions(),
 	)
 
@@ -62,6 +64,7 @@ func Render(renderContext *mdbook.RenderContext) error {
 	}
 	s := &session{
 		renderContext: renderContext,
+		config:        config,
 		md:            md,
 		w:             f,
 	}
@@ -112,6 +115,11 @@ func Render(renderContext *mdbook.RenderContext) error {
 		return err
 	}
 
+	_, err = fmt.Fprintln(f, ":table-stripes: even")
+	if err != nil {
+		return err
+	}
+
 	_, err = fmt.Fprintln(f)
 	if err != nil {
 		return err
@@ -148,7 +156,17 @@ func (s *session) handleBookItem(bookItem *mdbook.BookItem) error {
 }
 
 func printNode(node ast.Node, nodeLevel int, attrs map[string]any) {
-	fmt.Printf("%s- [%T / %v]", strings.Repeat(" ", nodeLevel), node, node.Kind())
+	doPrintNode(node, nodeLevel, true, attrs)
+}
+
+func doPrintNode(node ast.Node, nodeLevel int, handled bool, attrs map[string]any) {
+	fmt.Print(strings.Repeat(" ", nodeLevel))
+	fmt.Print("- ")
+	if handled {
+		fmt.Printf("[%v]", node.Kind())
+	} else {
+		fmt.Printf("[! %v]", node.Kind())
+	}
 	if attrs != nil {
 		fmt.Printf(" %v", attrs)
 	}
@@ -199,23 +217,163 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 			nodeLevel--
 		}
 		switch v := node.(type) {
+		case *ast.AutoLink:
+			if entering {
+				url := string(v.URL(sourceBytes))
+				printNode(node, nodeLevel, map[string]any{
+					"AutoLinkType": v.AutoLinkType,
+					"URL":          url,
+				})
+				_, err = fmt.Fprintf(s.w, "<%s>", url)
+				if err != nil {
+					return ast.WalkStop, err
+				}
+			}
+
+		case *ast.Blockquote:
+			if entering {
+				printNode(node, nodeLevel, nil)
+				_, err = fmt.Fprintln(s.w)
+				if err != nil {
+					return ast.WalkStop, err
+				}
+				_, err = fmt.Fprintln(s.w, "____")
+				if err != nil {
+					return ast.WalkStop, err
+				}
+			} else {
+				_, err = fmt.Fprintln(s.w, "____")
+				if err != nil {
+					return ast.WalkStop, err
+				}
+			}
+
+		case *ast.CodeSpan:
+			if entering {
+				printNode(node, nodeLevel, nil)
+				_, err = fmt.Fprint(s.w, "`")
+				if err != nil {
+					return ast.WalkStop, err
+				}
+			} else {
+				_, err = fmt.Fprint(s.w, "`")
+				if err != nil {
+					return ast.WalkStop, err
+				}
+			}
+
 		case *ast.Document:
 			if entering {
 				printNode(node, nodeLevel, nil)
 			}
 
+		case *ast.Emphasis:
+			if entering {
+				printNode(node, nodeLevel, map[string]any{
+					"Level": v.Level,
+				})
+				switch v.Level {
+				case 1:
+					_, err = fmt.Fprint(s.w, "_")
+					if err != nil {
+						return ast.WalkStop, err
+					}
+				case 2:
+					_, err = fmt.Fprint(s.w, "*")
+					if err != nil {
+						return ast.WalkStop, err
+					}
+				default:
+					return ast.WalkStop, fmt.Errorf("unknown emphasis level: %d", v.Level)
+				}
+			} else {
+				switch v.Level {
+				case 1:
+					_, err = fmt.Fprint(s.w, "_")
+					if err != nil {
+						return ast.WalkStop, err
+					}
+				case 2:
+					_, err = fmt.Fprint(s.w, "*")
+					if err != nil {
+						return ast.WalkStop, err
+					}
+				default:
+					return ast.WalkStop, fmt.Errorf("unknown emphasis level: %d", v.Level)
+				}
+			}
+
+		case *ast.FencedCodeBlock:
+			if entering {
+				language := string(v.Language(sourceBytes))
+				printNode(node, nodeLevel, map[string]any{
+					"Language": language,
+				})
+				_, err = fmt.Fprintln(s.w)
+				if err != nil {
+					return ast.WalkStop, err
+				}
+				if language != "" {
+					_, err = fmt.Fprintf(s.w, "[source,%s]\n", language)
+					if err != nil {
+						return ast.WalkStop, err
+					}
+				} else {
+					_, err = fmt.Fprintln(s.w, "[source]")
+					if err != nil {
+						return ast.WalkStop, err
+					}
+				}
+				_, err = fmt.Fprintln(s.w, "----")
+				if err != nil {
+					return ast.WalkStop, err
+				}
+
+				lines := v.Lines()
+				for i := 0; i < lines.Len(); i++ {
+					line := lines.At(i)
+					l := string(line.Value(sourceBytes))
+					_, err = fmt.Fprint(s.w, l)
+					if err != nil {
+						return ast.WalkStop, err
+					}
+				}
+				_, err = fmt.Fprintln(s.w, "----")
+				if err != nil {
+					return ast.WalkStop, err
+				}
+			}
+
+		case *ast.HTMLBlock:
+			if entering {
+				_, err = fmt.Fprint(s.w, "pass:[")
+				if err != nil {
+					return ast.WalkStop, err
+				}
+				lines := v.Lines()
+				for i := 0; i < lines.Len(); i++ {
+					line := lines.At(i)
+					l := string(line.Value(sourceBytes))
+					_, err = fmt.Fprint(s.w, l)
+					if err != nil {
+						return ast.WalkStop, err
+					}
+				}
+			} else {
+				_, err = fmt.Fprint(s.w, "]")
+				if err != nil {
+					return ast.WalkStop, err
+				}
+			}
+
 		case *ast.Heading:
-			if v.Level < 2 {
+			if (s.config.MinHeadingLevel > 0) && v.Level < s.config.MinHeadingLevel {
 				return ast.WalkSkipChildren, nil
 			}
 			if entering {
 				printNode(node, nodeLevel, map[string]any{
 					"Level": v.Level,
 				})
-
-				if (v.Level < 1) || (v.Level > 5) {
-					return ast.WalkStop, fmt.Errorf("unsupported heading level: %d", v.Level)
-				}
 
 				_, err = fmt.Fprintln(s.w)
 				if err != nil {
@@ -225,7 +383,15 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 				if err != nil {
 					return ast.WalkStop, err
 				}
-				_, err = fmt.Fprintf(s.w, "%s ", strings.Repeat("=", v.Level+1))
+				asciidocHeadingLevel := v.Level
+				if asciidocHeadingLevel < 1 {
+					asciidocHeadingLevel = 1
+					log.Printf("unsupported heading level %d, changed to %d", v.Level+1, asciidocHeadingLevel)
+				} else if asciidocHeadingLevel > 6 {
+					asciidocHeadingLevel = 6
+					log.Printf("unsupported heading level %d, changed to %d", v.Level+1, asciidocHeadingLevel)
+				}
+				_, err = fmt.Fprintf(s.w, "%s ", strings.Repeat("=", asciidocHeadingLevel))
 				if err != nil {
 					return ast.WalkStop, err
 				}
@@ -236,71 +402,29 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 				}
 			}
 
-		case *ast.Paragraph:
+		case *ast.Image:
 			if entering {
-				printNode(node, nodeLevel, nil)
-				_, err = fmt.Fprintln(s.w)
-				if err != nil {
-					return ast.WalkStop, err
-				}
-			} else {
-				_, err = fmt.Fprintln(s.w)
-				if err != nil {
-					return ast.WalkStop, err
-				}
-			}
-
-		case *ast.Text:
-			if entering {
-				value := string(v.Value(sourceBytes))
+				destination := string(v.Destination)
+				title := string(v.Title)
 				printNode(node, nodeLevel, map[string]any{
-					"Value": value,
+					"Destination": destination,
+					"Title":       title,
 				})
-				_, err = fmt.Fprint(s.w, value)
+				_, err = fmt.Fprintf(s.w, "image:%s[", destination)
 				if err != nil {
 					return ast.WalkStop, err
 				}
-			}
-
-		case *ast.Emphasis:
-			if entering {
-				fmt.Printf("%s- [%T / %v] Level: %d\n", strings.Repeat(" ", nodeLevel), node, node.Kind(), v.Level)
-				switch v.Level {
-				case 1:
-					/*
-						s.pdfHelper.PushDrawSettings(
-							WithItalic(),
-						)
-					*/
-				case 2:
-					/*
-						s.pdfHelper.PushDrawSettings(
-							WithBold(),
-						)
-					*/
-				default:
-					return ast.WalkStop, fmt.Errorf("unknown emphasis level: %d", v.Level)
+				if title != "" {
+					_, err = fmt.Fprintf(s.w, "title=%s,", title)
+					if err != nil {
+						return ast.WalkStop, err
+					}
 				}
 			} else {
-				/*
-					s.pdfHelper.PopDrawSettings()
-				*/
-			}
-
-		case *ast.CodeSpan:
-			if entering {
-				fmt.Printf("%s- [%T / %v]\n", strings.Repeat(" ", nodeLevel), node, node.Kind())
-				/*
-					s.pdfHelper.PushDrawSettings(
-						WithTypefaceClass(CodeTypefaceClass),
-					)
-					s.pdfHelper.pdf.SetFillColor(255, 255, 0)
-					s.pdfHelper.pdf.SetFillSpotColor("code", 100)
-				*/
-			} else {
-				/*
-					s.pdfHelper.PopDrawSettings()
-				*/
+				_, err = fmt.Fprint(s.w, "]")
+				if err != nil {
+					return ast.WalkStop, err
+				}
 			}
 
 		case *ast.Link:
@@ -333,9 +457,16 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 				if err != nil {
 					return ast.WalkStop, err
 				}
-				_, err = fmt.Fprintf(s.w, "[start=%d]\n", v.Start)
-				if err != nil {
-					return ast.WalkStop, err
+				if v.IsOrdered() && (v.Start != 1) {
+					_, err = fmt.Fprintf(s.w, "[start=%d]\n", v.Start)
+					if err != nil {
+						return ast.WalkStop, err
+					}
+				} else {
+					_, err = fmt.Fprint(s.w, "[disc]\n")
+					if err != nil {
+						return ast.WalkStop, err
+					}
 				}
 			}
 
@@ -344,8 +475,21 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 				printNode(node, nodeLevel, map[string]any{
 					"Offset": v.Offset,
 				})
+				level := 0
+				n := node
+				for n != nil {
+					switch n.(type) {
+					case *ast.List:
+						level++
+					}
+					n = n.Parent()
+				}
 				parent := v.Parent().(*ast.List)
-				_, err = fmt.Fprintf(s.w, "%c ", parent.Marker)
+				marker := "*"
+				if parent.IsOrdered() {
+					marker = "."
+				}
+				_, err = fmt.Fprintf(s.w, "%s ", strings.Repeat(marker, level))
 				if err != nil {
 					return ast.WalkStop, err
 				}
@@ -356,45 +500,215 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 				}
 			}
 
+		case *ast.Paragraph:
+			if entering {
+				printNode(node, nodeLevel, nil)
+				switch node.Parent().(type) {
+				case *ast.ListItem, *extensionAst.Footnote:
+					// do nothing
+				default:
+					_, err = fmt.Fprintln(s.w)
+					if err != nil {
+						return ast.WalkStop, err
+					}
+				}
+			} else {
+				switch node.Parent().(type) {
+				case *extensionAst.Footnote:
+					// do nothing
+				default:
+					_, err = fmt.Fprintln(s.w)
+					if err != nil {
+						return ast.WalkStop, err
+					}
+				}
+			}
+
+		case *ast.Text:
+			if entering {
+				value := string(v.Value(sourceBytes))
+				printNode(node, nodeLevel, map[string]any{
+					"Value": value,
+				})
+				_, err = fmt.Fprint(s.w, value)
+				if err != nil {
+					return ast.WalkStop, err
+				}
+			}
+
+		case *ast.TextBlock:
+			if entering {
+				printNode(node, nodeLevel, nil)
+			}
+
+		case *ast.ThematicBreak:
+			if entering {
+				printNode(node, nodeLevel, nil)
+				_, err = fmt.Fprintln(s.w)
+				if err != nil {
+					return ast.WalkStop, err
+				}
+				_, err = fmt.Fprintln(s.w, "'''")
+				if err != nil {
+					return ast.WalkStop, err
+				}
+			}
+
+		case *extensionAst.Footnote: // TODO collect footnotes
+			if entering {
+				ref := string(v.Ref)
+				printNode(node, nodeLevel, map[string]any{
+					"Ref":   ref,
+					"Index": v.Index,
+				})
+				_, err = fmt.Fprintln(s.w)
+				if err != nil {
+					return ast.WalkStop, err
+				}
+				_, err = fmt.Fprintf(s.w, ":fn-%d: footnote:%d[", v.Index, v.Index)
+				if err != nil {
+					return ast.WalkStop, err
+				}
+			} else {
+				_, err = fmt.Fprintln(s.w, "]")
+				if err != nil {
+					return ast.WalkStop, err
+				}
+			}
+
+		case *extensionAst.FootnoteBacklink:
+			// not supported
+			if entering {
+				printNode(node, nodeLevel, map[string]any{
+					"Index":    v.Index,
+					"RefCount": v.RefCount,
+					"RefIndex": v.RefIndex,
+				})
+				return ast.WalkSkipChildren, nil
+			}
+
+		case *extensionAst.FootnoteLink: // TODO collect footnotes
+			if entering {
+				printNode(node, nodeLevel, map[string]any{
+					"Index":    v.Index,
+					"RefCount": v.RefCount,
+					"RefIndex": v.RefIndex,
+				})
+				_, err = fmt.Fprintf(s.w, "{fn-%d}", v.Index)
+				if err != nil {
+					return ast.WalkStop, err
+				}
+			}
+
+		case *extensionAst.FootnoteList:
+			if entering {
+				printNode(node, nodeLevel, map[string]any{
+					"Count": v.Count,
+				})
+			}
+
+		case *extensionAst.Strikethrough:
+			if entering {
+				printNode(node, nodeLevel, nil)
+				_, err = fmt.Fprint(s.w, "[.line-through]#")
+				if err != nil {
+					return ast.WalkStop, err
+				}
+			} else {
+				_, err = fmt.Fprint(s.w, "#")
+				if err != nil {
+					return ast.WalkStop, err
+				}
+			}
+
 		case *extensionAst.Table:
 			if entering {
-				/*
-					rows := v.ChildCount()
-					cols := 0
-					for row := v.FirstChild(); row != nil; row = row.NextSibling() {
-						cols = max(cols, row.ChildCount())
+				printNode(node, nodeLevel, map[string]any{
+					"Alignments": v.Alignments,
+				})
+				_, err = fmt.Fprintln(s.w)
+				if err != nil {
+					return ast.WalkStop, err
+				}
+				var cols []string
+				for _, alignment := range v.Alignments {
+					switch alignment {
+					case extensionAst.AlignLeft:
+						cols = append(cols, "<")
+					case extensionAst.AlignRight:
+						cols = append(cols, ">")
+					case extensionAst.AlignCenter:
+						cols = append(cols, "^")
+					case extensionAst.AlignNone:
+						cols = append(cols, "")
+					default:
+						cols = append(cols, "")
 					}
-					colWidths := make([]float64, cols)
-					for row := v.FirstChild(); row != nil; row = row.NextSibling() {
-						for i, col := 0, row.FirstChild(); col != nil; i, col = i+1, col.NextSibling() {
-							txt := string(col.Text(sourceBytes))
-							w := s.pdf.GetStringWidth(txt)
-							colWidths[i] = max(colWidths[i], w)
-						}
-					}
-					fmt.Printf("%s- [%T / %v] rows: %d, cols: %d, colWidths: %v\n", strings.Repeat(" ", nodeLevel), node, node.Kind(), rows, cols, colWidths)
-				*/
-			}
-
-		case *extensionAst.TableHeader:
-			if entering {
-				fmt.Printf("%s- [%T / %v]\n", strings.Repeat(" ", nodeLevel), node, node.Kind())
-			}
-
-		case *extensionAst.TableRow:
-			if entering {
-				fmt.Printf("%s- [%T / %v]\n", strings.Repeat(" ", nodeLevel), node, node.Kind())
+				}
+				var options []string
+				_, hasTableHeader := v.FirstChild().(*extensionAst.TableHeader)
+				if hasTableHeader {
+					options = append(options, "header")
+				}
+				var tableSpecs []string
+				if len(cols) > 0 {
+					tableSpecs = append(tableSpecs, fmt.Sprintf("cols=\"%s\"", strings.Join(cols, ",")))
+				}
+				if len(options) > 0 {
+					tableSpecs = append(tableSpecs, fmt.Sprintf("options=\"%s\"", strings.Join(options, ",")))
+				}
+				_, err = fmt.Fprintf(s.w, "[%s]\n", strings.Join(tableSpecs, ","))
+				if err != nil {
+					return ast.WalkStop, err
+				}
+				_, err = fmt.Fprintln(s.w, "|===")
+				if err != nil {
+					return ast.WalkStop, err
+				}
+			} else {
+				_, err = fmt.Fprintln(s.w, "|===")
+				if err != nil {
+					return ast.WalkStop, err
+				}
 			}
 
 		case *extensionAst.TableCell:
 			if entering {
-				fmt.Printf("%s- [%T / %v]\n", strings.Repeat(" ", nodeLevel), node, node.Kind())
+				printNode(node, nodeLevel, nil)
+				_, err = fmt.Fprint(s.w, "|")
+				if err != nil {
+					return ast.WalkStop, err
+				}
+			} else {
+				_, err = fmt.Fprint(s.w, " ")
+				if err != nil {
+					return ast.WalkStop, err
+				}
+			}
+
+		case *extensionAst.TableHeader:
+			if entering {
+				printNode(node, nodeLevel, nil)
+			} else {
+				_, err = fmt.Fprintln(s.w)
+				if err != nil {
+					return ast.WalkStop, err
+				}
+			}
+
+		case *extensionAst.TableRow:
+			if entering {
+				printNode(node, nodeLevel, nil)
+			} else {
+				_, err = fmt.Fprintln(s.w)
+				if err != nil {
+					return ast.WalkStop, err
+				}
 			}
 
 		default:
 			if entering {
-				txt := string(v.Text(sourceBytes))
-				fmt.Printf("%s- !!! [%T / %v] %s\n", strings.Repeat(" ", nodeLevel), node, node.Kind(), txt)
+				doPrintNode(node, nodeLevel, false, nil)
 			}
 		}
 
@@ -410,7 +724,12 @@ func (s *session) handleChapter(chapter *mdbook.Chapter) error {
 			return err
 		}
 	}
-	// TODO
+
+	_, err = fmt.Fprintln(s.w)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 

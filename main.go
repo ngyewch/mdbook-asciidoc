@@ -37,7 +37,7 @@ func doMain(cCtx *cli.Context) error {
 		return err
 	}
 
-	err = renderer.Render(&renderContext)
+	err = renderer.Render(&renderContext, renderer.Config{})
 	if err != nil {
 		return err
 	}
