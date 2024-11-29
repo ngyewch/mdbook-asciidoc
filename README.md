@@ -1,3 +1,7 @@
+![GitHub Workflow Status (with event)](https://img.shields.io/github/actions/workflow/status/ngyewch/mdbook-asciidoc/build.yml)
+![GitHub tag (with filter)](https://img.shields.io/github/v/tag/ngyewch/mdbook-asciidoc)
+![GitHub last commit](https://img.shields.io/github/last-commit/ngyewch/mdbook-asciidoc)
+
 # mdbook-asciidoc
 
 A backed for [mdbook](https://rust-lang.github.io/mdBook/) that outputs [AsciiDoc](https://asciidoc.org/)
