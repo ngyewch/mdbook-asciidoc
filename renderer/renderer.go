@@ -20,7 +20,7 @@ type renderer struct {
 }
 
 type Config struct {
-	MinHeadingLevel int `json:"minHeadingLevel"`
+	MinHeadingLevel int `json:"min-heading-level"`
 }
 
 func Render(renderContext *mdbook.RenderContext, config Config) error {
