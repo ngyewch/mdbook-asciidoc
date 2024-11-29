@@ -1,7 +1,6 @@
 package renderer
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/ngyewch/mdbook-plugin"
 	"github.com/yuin/goldmark/ast"
@@ -28,24 +27,6 @@ func Render(renderContext *mdbook.RenderContext, config Config) error {
 	err := os.MkdirAll(outputDir, 0755)
 	if err != nil {
 		return err
-	}
-
-	{
-		f, err := os.Create(filepath.Join(outputDir, "renderContext.json"))
-		if err != nil {
-			return err
-		}
-		defer func(f *os.File) {
-			_ = f.Close()
-		}(f)
-
-		jsonEncoder := json.NewEncoder(f)
-		jsonEncoder.SetIndent("", "  ")
-		jsonEncoder.SetEscapeHTML(false)
-		err = jsonEncoder.Encode(renderContext)
-		if err != nil {
-			return err
-		}
 	}
 
 	c := &collector{
