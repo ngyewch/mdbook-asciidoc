@@ -2,8 +2,8 @@ package main
 
 import (
 	"encoding/json"
-	"github.com/ngyewch/mdbook-asciidoc/mdbook"
 	"github.com/ngyewch/mdbook-asciidoc/renderer"
+	"github.com/ngyewch/mdbook-plugin"
 	"github.com/urfave/cli/v2"
 	"log"
 	"os"

@@ -3,7 +3,7 @@ package renderer
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/ngyewch/mdbook-asciidoc/mdbook"
+	"github.com/ngyewch/mdbook-plugin"
 	"github.com/yuin/goldmark/ast"
 	"io"
 	"os"
