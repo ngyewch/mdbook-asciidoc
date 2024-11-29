@@ -399,6 +399,7 @@ func (mr *markdownRenderer) Walk(node ast.Node, entering bool) (ast.WalkStatus, 
 				options = append(options, "header")
 			}
 			var tableSpecs []string
+			tableSpecs = append(tableSpecs, "%autowidth")
 			if len(cols) > 0 {
 				tableSpecs = append(tableSpecs, fmt.Sprintf("cols=\"%s\"", strings.Join(cols, ",")))
 			}
