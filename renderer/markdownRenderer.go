@@ -204,7 +204,6 @@ func (mr *markdownRenderer) Walk(node ast.Node, entering bool) (ast.WalkStatus, 
 				sourcePath := filepath.Join(baseDirectory, filepath.Dir(mr.chapter.SourcePath), u.Path)
 				relPath := filepath.Join(filepath.Dir(mr.chapter.SourcePath), u.Path)
 				destinationPath := filepath.Join(mr.renderContext.Destination, relPath)
-				fmt.Println(sourcePath, destinationPath)
 				err = copyFile(sourcePath, destinationPath)
 				if err != nil {
 					return ast.WalkStop, err
