@@ -102,34 +102,72 @@ func (mr *markdownRenderer) Walk(node ast.Node, entering bool) (ast.WalkStatus, 
 			if err != nil {
 				return ast.WalkStop, err
 			}
-			if language != "" {
-				_, err = fmt.Fprintf(mr.w, "[source,%s]\n", language)
+			if language == "admonish" {
+				parts := strings.Split(string(v.Info.Value(mr.sourceBytes)), " ")
+				admonitionType := "NOTE"
+				if len(parts) > 1 {
+					switch parts[1] {
+					case "tip", "hint":
+						admonitionType = "TIP"
+					case "important":
+						admonitionType = "IMPORTANT"
+					case "caution", "attention":
+						admonitionType = "CAUTION"
+					case "warning", "danger", "error", "failure", "fail", "missing", "bug":
+						admonitionType = "WARNING"
+					}
+				}
+				_, err = fmt.Fprintf(mr.w, "[%s]\n", admonitionType)
+				if err != nil {
+					return ast.WalkStop, err
+				}
+				_, err = fmt.Fprintln(mr.w, "====")
+				if err != nil {
+					return ast.WalkStop, err
+				}
+				lines := v.Lines()
+				for i := 0; i < lines.Len(); i++ {
+					line := lines.At(i)
+					l := string(line.Value(mr.sourceBytes))
+					_, err = fmt.Fprint(mr.w, l)
+					if err != nil {
+						return ast.WalkStop, err
+					}
+				}
+				_, err = fmt.Fprintln(mr.w, "====")
 				if err != nil {
 					return ast.WalkStop, err
 				}
 			} else {
-				_, err = fmt.Fprintln(mr.w, "[source]")
+				if language != "" {
+					_, err = fmt.Fprintf(mr.w, "[source,%s]\n", language)
+					if err != nil {
+						return ast.WalkStop, err
+					}
+				} else {
+					_, err = fmt.Fprintln(mr.w, "[source]")
+					if err != nil {
+						return ast.WalkStop, err
+					}
+				}
+				_, err = fmt.Fprintln(mr.w, "----")
 				if err != nil {
 					return ast.WalkStop, err
 				}
-			}
-			_, err = fmt.Fprintln(mr.w, "----")
-			if err != nil {
-				return ast.WalkStop, err
-			}
 
-			lines := v.Lines()
-			for i := 0; i < lines.Len(); i++ {
-				line := lines.At(i)
-				l := string(line.Value(mr.sourceBytes))
-				_, err = fmt.Fprint(mr.w, l)
+				lines := v.Lines()
+				for i := 0; i < lines.Len(); i++ {
+					line := lines.At(i)
+					l := string(line.Value(mr.sourceBytes))
+					_, err = fmt.Fprint(mr.w, l)
+					if err != nil {
+						return ast.WalkStop, err
+					}
+				}
+				_, err = fmt.Fprintln(mr.w, "----")
 				if err != nil {
 					return ast.WalkStop, err
 				}
-			}
-			_, err = fmt.Fprintln(mr.w, "----")
-			if err != nil {
-				return ast.WalkStop, err
 			}
 		}
 

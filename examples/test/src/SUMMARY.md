@@ -14,3 +14,4 @@
 - [Inline HTML](./inline-html.md)
 - [Horizontal Rule](./horizontal-rule.md)
 - [Line Breaks](./line-breaks.md)
+- [Admonitions](./admonitions.md)
