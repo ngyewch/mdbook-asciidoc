@@ -4,8 +4,8 @@ go 1.23
 
 require (
 	github.com/ngyewch/mdbook-plugin v0.1.0
-	github.com/urfave/cli/v2 v2.27.5
-	github.com/yuin/goldmark v1.7.8
+	github.com/urfave/cli/v2 v2.27.6
+	github.com/yuin/goldmark v1.7.11
 )
 
 require (
