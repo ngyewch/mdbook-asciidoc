@@ -18,8 +18,6 @@ builds:
     ldflags:
       - -s -w
       - -X main.version={{ if index .Env "VERSION" }}{{ .Env.VERSION }}{{ else }}{{ .Version }}{{ end }}
-      - -X main.commit={{ if index .Env "COMMIT" }}{{ .Env.COMMIT }}{{ else }}{{ .Commit }}{{ end }}
-      - -X main.commitTimestamp={{ if index .Env "COMMIT_TIMESTAMP" }}{{ .Env.COMMIT_TIMESTAMP }}{{ else }}{{ .CommitTimestamp }}{{ end }}
 archives:
   - format: zip
 checksum:
