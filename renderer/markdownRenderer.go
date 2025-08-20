@@ -2,14 +2,15 @@ package renderer
 
 import (
 	"fmt"
-	"github.com/ngyewch/mdbook-plugin"
-	"github.com/yuin/goldmark/ast"
-	extensionAst "github.com/yuin/goldmark/extension/ast"
 	"io"
 	"log"
 	"net/url"
 	"path/filepath"
 	"strings"
+
+	"github.com/ngyewch/mdbook-plugin"
+	"github.com/yuin/goldmark/ast"
+	extensionAst "github.com/yuin/goldmark/extension/ast"
 )
 
 type markdownRenderer struct {

@@ -2,13 +2,14 @@ package renderer
 
 import (
 	"fmt"
-	"github.com/ngyewch/mdbook-plugin"
-	"github.com/yuin/goldmark/ast"
 	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/ngyewch/mdbook-plugin"
+	"github.com/yuin/goldmark/ast"
 )
 
 type renderer struct {

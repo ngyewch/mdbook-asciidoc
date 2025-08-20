@@ -3,14 +3,15 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/ngyewch/mdbook-asciidoc/renderer"
-	"github.com/ngyewch/mdbook-plugin"
-	"github.com/urfave/cli/v2"
 	"log"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ngyewch/mdbook-asciidoc/renderer"
+	"github.com/ngyewch/mdbook-plugin"
+	"github.com/urfave/cli/v2"
 )
 
 var (

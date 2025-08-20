@@ -2,11 +2,12 @@ package renderer
 
 import (
 	"bytes"
+	"strconv"
+	"strings"
+
 	"github.com/ngyewch/mdbook-plugin"
 	"github.com/yuin/goldmark/ast"
 	extensionAst "github.com/yuin/goldmark/extension/ast"
-	"strconv"
-	"strings"
 )
 
 type collector struct {
